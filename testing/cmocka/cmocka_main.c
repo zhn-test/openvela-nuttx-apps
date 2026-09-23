@@ -35,6 +35,7 @@
 #include <syslog.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <spawn.h>
 #include <nuttx/lib/builtin.h>
 #include <regex.h>
 #include <cmocka.h>
@@ -211,11 +212,16 @@ int main(int argc, FAR char *argv[])
         }
 
       found_in_builtin = 1;
-      bypass[0] = (FAR char *)builtin->name;
-      ret = posix_spawn(&pid, builtin->name, NULL, NULL, bypass, NULL);
-      if (ret == 0)
+      ret = task_spawn(builtin->name, builtin->main, NULL, NULL,
+                       &bypass[1], NULL);
+      if (ret >= 0)
         {
-          waitpid(pid, &ret, WUNTRACED);
+          waitpid(ret, &ret, WUNTRACED);
+        }
+      else
+        {
+          printf("cmocka: task_spawn(%s) failed: %d\n",
+                 builtin->name, ret);
         }
     }
 
