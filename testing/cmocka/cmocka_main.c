@@ -89,6 +89,62 @@ static int cm_regexmatch(FAR const char *pattern, FAR const char *str)
   return ret == 0;
 }
 
+#ifndef CONFIG_BUILD_KERNEL
+static pid_t cm_task_spawn_builtin(FAR const struct builtin_s *builtin,
+                                    FAR char * const argv[])
+{
+  posix_spawnattr_t attr;
+  struct sched_param sched;
+  pid_t pid;
+  int ret;
+
+  ret = posix_spawnattr_init(&attr);
+  if (ret != 0)
+    {
+      return -ret;
+    }
+
+  sched.sched_priority = builtin->priority;
+  ret = posix_spawnattr_setschedparam(&attr, &sched);
+  if (ret != 0)
+    {
+      goto errout;
+    }
+
+  ret = posix_spawnattr_setstacksize(&attr, builtin->stacksize);
+  if (ret != 0)
+    {
+      goto errout;
+    }
+
+#if CONFIG_RR_INTERVAL > 0
+  ret = posix_spawnattr_setschedpolicy(&attr, SCHED_RR);
+  if (ret != 0)
+    {
+      goto errout;
+    }
+
+  ret = posix_spawnattr_setflags(&attr,
+                                 POSIX_SPAWN_SETSCHEDPARAM |
+                                 POSIX_SPAWN_SETSCHEDULER);
+#else
+  ret = posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSCHEDPARAM);
+#endif
+  if (ret != 0)
+    {
+      goto errout;
+    }
+
+  pid = task_spawn(builtin->name, builtin->main, NULL, &attr, argv, NULL);
+  posix_spawnattr_destroy(&attr);
+  return pid;
+
+errout:
+  posix_spawnattr_destroy(&attr);
+  return -ret;
+}
+#endif
+
 /****************************************************************************
  * cmocka_main
  ****************************************************************************/
@@ -212,8 +268,7 @@ int main(int argc, FAR char *argv[])
         }
 
       found_in_builtin = 1;
-      ret = task_spawn(builtin->name, builtin->main, NULL, NULL,
-                       &bypass[1], NULL);
+      ret = cm_task_spawn_builtin(builtin, &bypass[1]);
       if (ret >= 0)
         {
           waitpid(ret, &ret, WUNTRACED);
